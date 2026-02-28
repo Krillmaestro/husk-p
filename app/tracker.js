@@ -33,6 +33,24 @@ function kvmColor(v) {
   return 'var(--red)';
 }
 
+function formatVisningDate(dateStr, timeStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + 'T00:00:00');
+  const now = new Date();
+  const day = d.getDate();
+  const months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+  const days = ['sön', 'mån', 'tis', 'ons', 'tor', 'fre', 'lör'];
+  const dayName = days[d.getDay()];
+  const monthName = months[d.getMonth()];
+  const diffDays = Math.ceil((d - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+  let label = `${dayName} ${day} ${monthName}`;
+  if (diffDays === 0) label = 'Idag';
+  else if (diffDays === 1) label = 'Imorgon';
+  else if (diffDays < 0) label = `${day} ${monthName} (passerad)`;
+  if (timeStr) label += ` kl ${timeStr.slice(0, 5)}`;
+  return { label, diffDays };
+}
+
 const EMPTY_FORM = {
   addr: '', area: '', price: '', sqm: '', rooms: '', floor: '',
   fee: '', hiss: 0, status: 'intressant', note: '', url: '',
@@ -56,6 +74,7 @@ export default function Tracker() {
   const [scrapeError, setScrapeError] = useState('');
   const [showPasteFallback, setShowPasteFallback] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [hoveredCard, setHoveredCard] = useState(null);
 
   const load = useCallback(() => {
     fetch('/api/apartments')
@@ -67,7 +86,7 @@ export default function Tracker() {
   useEffect(() => { load(); }, [load]);
 
   const updateApt = useCallback(async (id, fields) => {
-    setSaving(s => ({ ...s, [id]: true }));
+    setSaving(s => ({ ...s, [id]: 'saving' }));
     try {
       const res = await fetch(`/api/apartments/${id}`, {
         method: 'PATCH',
@@ -76,8 +95,13 @@ export default function Tracker() {
       });
       const updated = await res.json();
       setApartments(prev => prev.map(a => a.id === id ? updated : a));
-    } catch (e) { console.error(e); }
-    setSaving(s => ({ ...s, [id]: false }));
+      setSaving(s => ({ ...s, [id]: 'saved' }));
+      setTimeout(() => setSaving(s => ({ ...s, [id]: false })), 1500);
+    } catch (e) {
+      console.error(e);
+      setSaving(s => ({ ...s, [id]: 'error' }));
+      setTimeout(() => setSaving(s => ({ ...s, [id]: false })), 3000);
+    }
   }, []);
 
   const deleteApt = useCallback(async (id) => {
@@ -209,6 +233,15 @@ export default function Tracker() {
       : 0;
     const favoriter = apartments.filter(a => a.favorit).length;
     return { total, visningar, avgKvm, favoriter };
+  }, [apartments]);
+
+  const upcomingVisningar = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return apartments
+      .filter(a => a.visning_date && new Date(a.visning_date + 'T00:00:00') >= now)
+      .sort((a, b) => new Date(a.visning_date) - new Date(b.visning_date))
+      .slice(0, 5);
   }, [apartments]);
 
   if (loading) {
@@ -395,6 +428,46 @@ export default function Tracker() {
         ))}
       </div>
 
+      {/* Upcoming visningar */}
+      {upcomingVisningar.length > 0 && (
+        <div style={{
+          background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10,
+          padding: 16, marginBottom: 20,
+        }}>
+          <div style={{
+            fontSize: 12, color: 'var(--orange)', marginBottom: 10,
+            textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700,
+          }}>
+            Kommande visningar
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {upcomingVisningar.map(apt => {
+              const v = formatVisningDate(apt.visning_date, apt.visning_time);
+              return (
+                <div key={apt.id}
+                  onClick={() => setExpanded(apt.id)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '8px 12px', background: 'var(--bg)', borderRadius: 8,
+                    cursor: 'pointer', border: '1px solid var(--border)',
+                  }}>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{apt.addr}</span>
+                    {apt.area ? <span style={{ fontSize: 12, color: 'var(--text2)', marginLeft: 6 }}>{apt.area}</span> : null}
+                  </div>
+                  <div style={{
+                    fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-mono)',
+                    color: v && v.diffDays <= 2 ? 'var(--red)' : 'var(--orange)',
+                  }}>
+                    {v ? v.label : apt.visning_date}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="filter-bar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
         <select value={sort} onChange={e => setSort(e.target.value)} style={selectStyle}>
@@ -447,12 +520,21 @@ export default function Tracker() {
             const st = getStatus(apt.status);
 
             return (
-              <div key={apt.id} style={{
-                background: isExpanded ? 'var(--bg3)' : 'var(--bg2)',
-                border: `1px solid ${apt.favorit ? 'var(--red)' : 'var(--border)'}`,
-                borderRadius: 10, overflow: 'hidden',
-                transition: 'all 0.2s',
-              }}>
+              <div key={apt.id}
+                onMouseEnter={() => setHoveredCard(apt.id)}
+                onMouseLeave={() => setHoveredCard(null)}
+                style={{
+                  background: isExpanded ? 'var(--bg3)'
+                    : apt.status === 'budgivning' ? '#ef44440a'
+                    : hoveredCard === apt.id ? 'var(--bg3)' : 'var(--bg2)',
+                  border: apt.status === 'budgivning'
+                    ? '1px solid #ef444433'
+                    : `1px solid ${apt.favorit ? 'var(--red)' : 'var(--border)'}`,
+                  borderLeft: `3px solid ${st.color}`,
+                  borderRadius: 10, overflow: 'hidden',
+                  transition: 'all 0.15s',
+                  transform: hoveredCard === apt.id && !isExpanded ? 'translateX(2px)' : 'none',
+                }}>
                 {/* Card header row */}
                 <div
                   onClick={() => setExpanded(isExpanded ? null : apt.id)}
@@ -475,26 +557,38 @@ export default function Tracker() {
                         background: 'var(--red)', color: '#fff', fontSize: 9,
                         padding: '1px 5px', borderRadius: 3, fontWeight: 700,
                       }}>SÄNKT</span> : null}
-                      {apt.status === 'budgivning' && apt.bud_hogsta ? (
+                      {apt.bud_hogsta ? (
                         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', fontFamily: 'var(--font-mono)' }}>
                           🔥 {formatPrice(apt.bud_hogsta)}
                         </span>
                       ) : null}
-                      {apt.status === 'budgivning' && apt.bud_vart ? (
+                      {apt.bud_vart ? (
                         <span style={{
                           background: '#22c55e22', color: 'var(--green)', fontSize: 9,
                           padding: '1px 6px', borderRadius: 3, fontWeight: 700,
                         }}>VÅRT BUD</span>
                       ) : null}
                     </div>
-                    <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 13, color: 'var(--text2)', fontFamily: 'var(--font-mono)', flexWrap: 'wrap' }}>
-                      {apt.price ? <span>{formatPrice(apt.price)}</span> : null}
-                      {apt.sqm ? <span>{apt.sqm} m²</span> : null}
-                      {apt.rooms ? <span>{apt.rooms} rum</span> : null}
-                      {apt.floor ? <span>vån {apt.floor}</span> : null}
-                      {apt.fee ? <span>{apt.fee.toLocaleString('sv')} kr/mån</span> : null}
-                      {kvm ? <span style={{ color: kvmColor(kvm), fontWeight: 600 }}>{kvm.toLocaleString('sv')} kr/m²</span> : null}
-                      {apt.visning_date ? <span style={{ color: 'var(--orange)', fontWeight: 600 }}>📅 {apt.visning_date}{apt.visning_time ? ` kl ${apt.visning_time}` : ''}</span> : null}
+                    <div style={{ display: 'flex', gap: 16, marginTop: 6, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                      {apt.price ? (
+                        <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-mono)', letterSpacing: '-0.5px' }}>
+                          {formatPrice(apt.price)}
+                        </span>
+                      ) : null}
+                      {kvm ? (
+                        <span style={{ fontSize: 12, fontWeight: 600, color: kvmColor(kvm), fontFamily: 'var(--font-mono)' }}>
+                          {kvm.toLocaleString('sv')} kr/m²
+                        </span>
+                      ) : null}
+                      <span style={{ fontSize: 12, color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>
+                        {[
+                          apt.sqm ? `${apt.sqm} m²` : null,
+                          apt.rooms ? `${apt.rooms} rum` : null,
+                          apt.floor ? `vån ${apt.floor}` : null,
+                          apt.fee ? `${apt.fee.toLocaleString('sv')} kr/mån` : null,
+                        ].filter(Boolean).join(' · ')}
+                      </span>
+                      {apt.visning_date ? (() => { const v = formatVisningDate(apt.visning_date, apt.visning_time); return v ? <span style={{ color: v.diffDays >= 0 && v.diffDays <= 2 ? 'var(--red)' : v.diffDays < 0 ? 'var(--text2)' : 'var(--orange)', fontWeight: 600, fontSize: 12 }}>📅 {v.label}</span> : null; })() : null}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -562,39 +656,56 @@ export default function Tracker() {
                         </div>
 
                         {/* Budgivning */}
-                        {apt.status === 'budgivning' && (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Budgivning</div>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <input
-                                type="number"
-                                placeholder="Högsta bud (kr)"
-                                value={apt.bud_hogsta || ''}
-                                onChange={e => setApartments(prev => prev.map(a => a.id === apt.id ? { ...a, bud_hogsta: e.target.value ? Number(e.target.value) : null } : a))}
-                                onBlur={e => updateApt(apt.id, { bud_hogsta: e.target.value ? Number(e.target.value) : null })}
-                                onClick={e => e.stopPropagation()}
-                                style={{ ...inputMiniStyle, flex: 1 }}
-                              />
-                              <button
-                                onClick={e => { e.stopPropagation(); updateApt(apt.id, { bud_vart: apt.bud_vart ? 0 : 1 }); }}
-                                style={{
-                                  ...btnStyle,
-                                  background: apt.bud_vart ? '#22c55e22' : 'var(--bg)',
-                                  color: apt.bud_vart ? 'var(--green)' : 'var(--text2)',
-                                  borderColor: apt.bud_vart ? '#22c55e44' : 'var(--border)',
-                                  fontWeight: apt.bud_vart ? 700 : 400,
-                                }}>
-                                {apt.bud_vart ? '✓ Vårt bud' : 'Vårt bud?'}
-                              </button>
-                            </div>
-                            {apt.bud_hogsta ? (
-                              <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
-                                Högsta bud: <strong style={{ color: 'var(--red)' }}>{formatPrice(apt.bud_hogsta)}</strong>
-                                {apt.bud_vart ? <span style={{ color: 'var(--green)', marginLeft: 6 }}>(vårt)</span> : null}
-                              </div>
-                            ) : null}
+                        <div style={{
+                          marginBottom: 12,
+                          background: apt.status === 'budgivning' ? '#ef444410' : 'transparent',
+                          border: apt.status === 'budgivning' ? '1px solid #ef444433' : 'none',
+                          borderRadius: 8, padding: apt.status === 'budgivning' ? 12 : 0,
+                        }}>
+                          <div style={{
+                            fontSize: 11, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px',
+                            color: apt.status === 'budgivning' ? 'var(--red)' : 'var(--text2)',
+                            fontWeight: apt.status === 'budgivning' ? 700 : 400,
+                          }}>
+                            {apt.status === 'budgivning' ? 'Budgivning pågående' : 'Budgivning'}
                           </div>
-                        )}
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input
+                              type="number"
+                              placeholder="Högsta bud (kr)"
+                              value={apt.bud_hogsta || ''}
+                              onChange={e => setApartments(prev => prev.map(a => a.id === apt.id ? { ...a, bud_hogsta: e.target.value ? Number(e.target.value) : null } : a))}
+                              onBlur={e => updateApt(apt.id, { bud_hogsta: e.target.value ? Number(e.target.value) : null })}
+                              onClick={e => e.stopPropagation()}
+                              style={{ ...inputMiniStyle, flex: 1 }}
+                            />
+                            <button
+                              onClick={e => { e.stopPropagation(); updateApt(apt.id, { bud_vart: apt.bud_vart ? 0 : 1 }); }}
+                              style={{
+                                ...btnStyle,
+                                background: apt.bud_vart ? '#22c55e22' : 'var(--bg)',
+                                color: apt.bud_vart ? 'var(--green)' : 'var(--text2)',
+                                borderColor: apt.bud_vart ? '#22c55e44' : 'var(--border)',
+                                fontWeight: apt.bud_vart ? 700 : 400,
+                              }}>
+                              {apt.bud_vart ? '✓ Vi leder' : 'Vårt bud?'}
+                            </button>
+                          </div>
+                          {apt.bud_hogsta && apt.price ? (
+                            <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                              <span>Utgångspris: {formatPrice(apt.price)}</span>
+                              <span style={{ color: 'var(--red)', fontWeight: 600 }}>
+                                +{formatPrice(apt.bud_hogsta - apt.price)} ({Math.round((apt.bud_hogsta - apt.price) / apt.price * 100)}%)
+                              </span>
+                              {apt.bud_vart ? <span style={{ color: 'var(--green)', fontWeight: 700 }}>Vi leder</span> : null}
+                            </div>
+                          ) : apt.bud_hogsta ? (
+                            <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
+                              Högsta bud: <strong style={{ color: 'var(--red)' }}>{formatPrice(apt.bud_hogsta)}</strong>
+                              {apt.bud_vart ? <span style={{ color: 'var(--green)', marginLeft: 6 }}>(vårt)</span> : null}
+                            </div>
+                          ) : null}
+                        </div>
 
                         {apt.note && (
                           <div style={{ marginBottom: 12 }}>
@@ -684,7 +795,16 @@ export default function Tracker() {
                             </button>
                           )}
                         </div>
-                        {saving[apt.id] && <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 6 }}>Sparar...</div>}
+                        {saving[apt.id] && (
+                          <div style={{
+                            fontSize: 12, marginTop: 8, padding: '4px 10px', borderRadius: 6, display: 'inline-block',
+                            background: saving[apt.id] === 'saving' ? '#3b82f618' : saving[apt.id] === 'error' ? '#ef444418' : '#22c55e18',
+                            color: saving[apt.id] === 'saving' ? 'var(--accent)' : saving[apt.id] === 'error' ? 'var(--red)' : 'var(--green)',
+                            fontWeight: 600,
+                          }}>
+                            {saving[apt.id] === 'saving' ? 'Sparar...' : saving[apt.id] === 'error' ? 'Kunde inte spara' : '✓ Sparat'}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
