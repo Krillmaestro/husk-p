@@ -13,6 +13,10 @@ RUN mkdir -p /app/data
 
 RUN npm run build
 
+# Next.js standalone kräver att public och static kopieras manuellt
+RUN cp -r public .next/standalone/public
+RUN cp -r .next/static .next/standalone/.next/static
+
 ENV NODE_ENV=production
 ENV DB_PATH=/app/data/tracker.db
 ENV PORT=3000

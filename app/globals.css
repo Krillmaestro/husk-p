@@ -55,4 +55,11 @@ button:hover {
 /* Mobile */
 @media (max-width: 640px) {
   h1 { font-size: 20px !important; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .form-grid { grid-template-columns: 1fr !important; }
+  .form-grid > [style*="span 2"] { grid-column: span 1 !important; }
+  .detail-grid { grid-template-columns: 1fr !important; }
+  .filter-bar { gap: 8px !important; }
+  .filter-bar select { flex: 1; min-width: 0; }
+  .status-buttons button { padding: 6px 8px !important; font-size: 10px !important; }
 }

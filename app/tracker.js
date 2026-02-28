@@ -179,7 +179,7 @@ export default function Tracker() {
           padding: 24, marginBottom: 24, animation: 'fadeIn 0.2s ease',
         }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Ny lägenhet</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Input label="Adress *" value={form.addr} onChange={v => setForm(f => ({ ...f, addr: v }))} placeholder="T.ex. Storgatan 5, 3tr" span={2} />
             <Input label="Område" value={form.area} onChange={v => setForm(f => ({ ...f, area: v }))} placeholder="T.ex. Södermalm" />
             <Input label="Pris (kr)" value={form.price} onChange={v => setForm(f => ({ ...f, price: v }))} placeholder="3500000" type="number" />
@@ -228,7 +228,7 @@ export default function Tracker() {
       )}
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+      <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
         {[
           { label: 'Sparade', value: stats.total, color: 'var(--accent)' },
           { label: 'Visningar', value: stats.visningar, color: 'var(--orange)' },
@@ -246,7 +246,7 @@ export default function Tracker() {
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+      <div className="filter-bar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
         <select value={sort} onChange={e => setSort(e.target.value)} style={selectStyle}>
           <option value="newest">Senast tillagd</option>
           <option value="price_asc">Pris ↑</option>
@@ -349,14 +349,14 @@ export default function Tracker() {
                 {/* Expanded detail */}
                 {isExpanded && (
                   <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border)' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, paddingTop: 16 }}>
+                    <div className="detail-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, paddingTop: 16 }}>
 
                       {/* Left: info */}
                       <div>
                         {/* Status changer */}
                         <div style={{ marginBottom: 12 }}>
                           <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status</div>
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <div className="status-buttons" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             {STATUS_OPTIONS.map(s => (
                               <button key={s.value}
                                 onClick={(e) => { e.stopPropagation(); updateApt(apt.id, { status: s.value }); }}
