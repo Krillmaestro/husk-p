@@ -51,6 +51,9 @@ export default function Tracker() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [saving, setSaving] = useState({});
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [scrapeUrl, setScrapeUrl] = useState('');
+  const [scraping, setScraping] = useState(false);
+  const [scrapeError, setScrapeError] = useState('');
 
   const load = useCallback(() => {
     fetch('/api/apartments')
@@ -106,6 +109,41 @@ export default function Tracker() {
       setShowForm(false);
     } catch (e) { console.error(e); }
   }, [form]);
+
+  const scrapeBooli = useCallback(async () => {
+    if (!scrapeUrl.trim()) return;
+    setScraping(true);
+    setScrapeError('');
+    try {
+      const res = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: scrapeUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setScrapeError(data.error || 'Kunde inte hämta info');
+        return;
+      }
+      setForm(f => ({
+        ...f,
+        addr: data.addr || f.addr,
+        area: data.area || f.area,
+        price: data.price || f.price,
+        sqm: data.sqm || f.sqm,
+        rooms: data.rooms || f.rooms,
+        floor: data.floor || f.floor,
+        fee: data.fee || f.fee,
+        hiss: data.hiss ?? f.hiss,
+        note: data.note || f.note,
+        url: data.url || f.url,
+      }));
+    } catch (e) {
+      setScrapeError('Nätverksfel — kunde inte nå servern');
+    } finally {
+      setScraping(false);
+    }
+  }, [scrapeUrl]);
 
   const filtered = useMemo(() => {
     let list = [...apartments];
@@ -179,6 +217,49 @@ export default function Tracker() {
           padding: 24, marginBottom: 24, animation: 'fadeIn 0.2s ease',
         }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Ny lägenhet</h2>
+
+          {/* Auto-fetch from Booli */}
+          <div style={{
+            display: 'flex', gap: 8, marginBottom: 16, alignItems: 'flex-end',
+          }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 12, color: 'var(--text2)', display: 'block', marginBottom: 4 }}>
+                Klistra in Booli-länk för att fylla i automatiskt
+              </label>
+              <input
+                type="url"
+                value={scrapeUrl}
+                onChange={e => { setScrapeUrl(e.target.value); setScrapeError(''); }}
+                placeholder="https://www.booli.se/annons/..."
+                disabled={scraping}
+                style={{
+                  width: '100%', background: 'var(--bg)', color: 'var(--text)',
+                  border: `1px solid ${scrapeError ? 'var(--red)' : 'var(--border)'}`, borderRadius: 6,
+                  padding: '8px 10px', fontSize: 14, fontFamily: 'var(--font-sans)',
+                }}
+              />
+            </div>
+            <button
+              onClick={scrapeBooli}
+              disabled={scraping || !scrapeUrl.trim()}
+              style={{
+                background: scraping ? 'var(--border)' : 'var(--accent)',
+                color: '#fff', border: 'none', borderRadius: 6,
+                padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                cursor: scraping || !scrapeUrl.trim() ? 'not-allowed' : 'pointer',
+                fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+                opacity: scraping || !scrapeUrl.trim() ? 0.5 : 1,
+                height: 38,
+              }}>
+              {scraping ? '⏳ Hämtar...' : '🔍 Hämta info'}
+            </button>
+          </div>
+          {scrapeError && (
+            <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 12, marginTop: -8 }}>
+              {scrapeError}
+            </div>
+          )}
+
           <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Input label="Adress *" value={form.addr} onChange={v => setForm(f => ({ ...f, addr: v }))} placeholder="T.ex. Storgatan 5, 3tr" span={2} />
             <Input label="Område" value={form.area} onChange={v => setForm(f => ({ ...f, area: v }))} placeholder="T.ex. Södermalm" />
@@ -216,7 +297,7 @@ export default function Tracker() {
             }}>
               Spara
             </button>
-            <button onClick={() => { setShowForm(false); setForm({ ...EMPTY_FORM }); }} style={{
+            <button onClick={() => { setShowForm(false); setForm({ ...EMPTY_FORM }); setScrapeUrl(''); setScrapeError(''); }} style={{
               background: 'transparent', color: 'var(--text2)', border: '1px solid var(--border)',
               borderRadius: 8, padding: '10px 20px', fontSize: 14, cursor: 'pointer',
               fontFamily: 'var(--font-sans)',
