@@ -18,6 +18,100 @@ Fält att extrahera:
 Text:
 `;
 
+const FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"macOS"',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+};
+
+// Parse Booli's __NEXT_DATA__ Apollo cache directly — no AI needed
+function parseBooliNextData(html) {
+  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!match) return null;
+
+  try {
+    const nextData = JSON.parse(match[1]);
+    const apollo = nextData?.props?.pageProps?.__APOLLO_STATE__;
+    if (!apollo) return null;
+
+    // Find the residence object
+    let residence = null;
+    for (const val of Object.values(apollo)) {
+      if (val?.__typename && (
+        val.__typename === 'ResidenceForSale' ||
+        val.__typename === 'ResidenceWithSoldProperty' ||
+        val.__typename === 'Residence'
+      )) {
+        residence = val;
+        break;
+      }
+    }
+    if (!residence) return null;
+
+    // Find the most specific area name (userDefined or municipality)
+    let area = '';
+    if (residence.primaryArea?.name) {
+      area = residence.primaryArea.name;
+    }
+    for (const val of Object.values(apollo)) {
+      if (val?.__typename === 'Area_V3' && val.type === 'userDefined' && val.name) {
+        area = val.name;
+        break;
+      }
+    }
+
+    // Extract floor from infoSections markdown text if available
+    let floor = '';
+    if (residence.infoSections) {
+      for (const section of residence.infoSections) {
+        const points = section?.content?.infoPoints || [];
+        for (const p of points) {
+          const md = p?.displayText?.markdown || '';
+          const floorMatch = md.match(/våning\s*\*\*(\d+)\s*(av\s*\d+)?\*\*/i) ||
+                             md.match(/\*\*våning\s*(\d+)\s*(av\s*\d+)?\*\*/i) ||
+                             md.match(/våning\s*(\d+)/i);
+          if (floorMatch) {
+            floor = floorMatch[2] ? `${floorMatch[1]} ${floorMatch[2]}` : floorMatch[1];
+          }
+        }
+      }
+    }
+
+    // Check for elevator in infoSections
+    let hiss = 0;
+    if (residence.infoSections) {
+      const allText = JSON.stringify(residence.infoSections).toLowerCase();
+      if (allText.includes('hiss')) hiss = 1;
+    }
+
+    // Pick best price: listPrice for active listings, soldPrice for sold
+    const price = residence.listPrice?.raw || residence.soldPrice?.raw || null;
+
+    return {
+      addr: residence.streetAddress || '',
+      area,
+      price,
+      sqm: residence.livingArea?.raw || null,
+      rooms: residence.rooms?.raw || null,
+      floor,
+      fee: residence.rent?.raw || null,
+      hiss,
+      note: '',
+    };
+  } catch (e) {
+    console.error('Booli parse error:', e);
+    return null;
+  }
+}
+
 function parseAiResponse(text) {
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
@@ -63,26 +157,9 @@ export async function POST(req) {
       return Response.json({ error: 'Ange en giltig Booli- eller Hemnet-länk' }, { status: 400 });
     }
 
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"macOS"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
-      },
-      redirect: 'follow',
-    });
+    const res = await fetch(url, { headers: FETCH_HEADERS, redirect: 'follow' });
 
     if (!res.ok) {
-      // Return a special flag so the UI can show the paste-text fallback
       return Response.json({
         error: `Kunde inte hämta sidan (${res.status})`,
         showPasteFallback: true,
@@ -91,6 +168,15 @@ export async function POST(req) {
 
     const html = await res.text();
 
+    // Try direct parsing for Booli (fast, no AI cost)
+    if (url.includes('booli.se')) {
+      const booliData = parseBooliNextData(html);
+      if (booliData) {
+        return Response.json(formatResult(booliData, url));
+      }
+    }
+
+    // Fallback: use AI to parse HTML (for Hemnet or if Booli parse fails)
     const cleaned = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
