@@ -69,37 +69,51 @@ function parseBooliUrl(url) {
   return null;
 }
 
-// Fetch apartment data from Booli's GraphQL API (bypasses bot detection)
+// Fetch apartment data from Booli's GraphQL API
+// Uses Cloudflare Worker proxy if configured, falls back to direct
 async function fetchBooliGraphQL({ type, id }) {
   const query = type === 'listing' ? BOOLI_GQL_BY_LISTING : BOOLI_GQL_BY_RESIDENCE;
   const dataKey = type === 'listing' ? 'propertyByListingId' : 'propertyByResidenceId';
+  const gqlBody = JSON.stringify({ query, variables: { id } });
 
-  const res = await fetch('https://www.booli.se/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Origin': 'https://www.booli.se',
-      'Referer': 'https://www.booli.se/',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    },
-    body: JSON.stringify({
-      query,
-      variables: { id },
-    }),
-  });
+  // Try direct first, then via proxy if blocked
+  const endpoints = [
+    'https://www.booli.se/graphql',
+    process.env.BOOLI_PROXY_URL,
+  ].filter(Boolean);
 
-  if (!res.ok) {
-    console.error('Booli GraphQL error:', res.status, await res.text().catch(() => ''));
-    return null;
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Origin': 'https://www.booli.se',
+          'Referer': 'https://www.booli.se/',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        },
+        body: gqlBody,
+      });
+
+      if (!res.ok) {
+        console.error(`Booli GraphQL (${endpoint}):`, res.status);
+        continue;
+      }
+
+      const json = await res.json();
+      const p = json?.data?.[dataKey];
+      if (p) return formatBooliResult(p);
+    } catch (e) {
+      console.error(`Booli GraphQL error (${endpoint}):`, e.message);
+      continue;
+    }
   }
 
-  const json = await res.json();
-  const p = json?.data?.[dataKey];
-  if (!p) {
-    console.error('Booli GraphQL no data:', JSON.stringify(json).slice(0, 500));
-    return null;
-  }
+  return null;
+}
+
+function formatBooliResult(p) {
 
   return {
     addr: p.streetAddress || '',
