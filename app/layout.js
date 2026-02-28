@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Näsby Park Tracker – Husk-P',
-  description: 'Interaktiv bostadsbevakning för Näsby Park, Täby',
+  title: 'Lägenhetsjakten',
+  description: 'Håll koll på lägenheter, visningar och intryck',
 };
 
 export default function RootLayout({ children }) {
