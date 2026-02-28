@@ -78,7 +78,10 @@ async function fetchBooliGraphQL({ type, id }) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       'Origin': 'https://www.booli.se',
+      'Referer': 'https://www.booli.se/',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     },
     body: JSON.stringify({
       query,
@@ -86,9 +89,17 @@ async function fetchBooliGraphQL({ type, id }) {
     }),
   });
 
+  if (!res.ok) {
+    console.error('Booli GraphQL error:', res.status, await res.text().catch(() => ''));
+    return null;
+  }
+
   const json = await res.json();
   const p = json?.data?.[dataKey];
-  if (!p) return null;
+  if (!p) {
+    console.error('Booli GraphQL no data:', JSON.stringify(json).slice(0, 500));
+    return null;
+  }
 
   return {
     addr: p.streetAddress || '',
