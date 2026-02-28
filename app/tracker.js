@@ -54,6 +54,8 @@ export default function Tracker() {
   const [scrapeUrl, setScrapeUrl] = useState('');
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState('');
+  const [showPasteFallback, setShowPasteFallback] = useState(false);
+  const [pasteText, setPasteText] = useState('');
 
   const load = useCallback(() => {
     fetch('/api/apartments')
@@ -110,10 +112,27 @@ export default function Tracker() {
     } catch (e) { console.error(e); }
   }, [form]);
 
+  const applyScrapedData = useCallback((data) => {
+    setForm(f => ({
+      ...f,
+      addr: data.addr || f.addr,
+      area: data.area || f.area,
+      price: data.price || f.price,
+      sqm: data.sqm || f.sqm,
+      rooms: data.rooms || f.rooms,
+      floor: data.floor || f.floor,
+      fee: data.fee || f.fee,
+      hiss: data.hiss ?? f.hiss,
+      note: data.note || f.note,
+      url: data.url || f.url,
+    }));
+  }, []);
+
   const scrapeBooli = useCallback(async () => {
     if (!scrapeUrl.trim()) return;
     setScraping(true);
     setScrapeError('');
+    setShowPasteFallback(false);
     try {
       const res = await fetch('/api/scrape', {
         method: 'POST',
@@ -123,27 +142,42 @@ export default function Tracker() {
       const data = await res.json();
       if (!res.ok) {
         setScrapeError(data.error || 'Kunde inte hämta info');
+        if (data.showPasteFallback) setShowPasteFallback(true);
         return;
       }
-      setForm(f => ({
-        ...f,
-        addr: data.addr || f.addr,
-        area: data.area || f.area,
-        price: data.price || f.price,
-        sqm: data.sqm || f.sqm,
-        rooms: data.rooms || f.rooms,
-        floor: data.floor || f.floor,
-        fee: data.fee || f.fee,
-        hiss: data.hiss ?? f.hiss,
-        note: data.note || f.note,
-        url: data.url || f.url,
-      }));
+      applyScrapedData(data);
+      setShowPasteFallback(false);
     } catch (e) {
       setScrapeError('Nätverksfel — kunde inte nå servern');
     } finally {
       setScraping(false);
     }
-  }, [scrapeUrl]);
+  }, [scrapeUrl, applyScrapedData]);
+
+  const scrapeFromPaste = useCallback(async () => {
+    if (!pasteText.trim()) return;
+    setScraping(true);
+    setScrapeError('');
+    try {
+      const res = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pastedText: pasteText.trim(), url: scrapeUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setScrapeError(data.error || 'Kunde inte tolka texten');
+        return;
+      }
+      applyScrapedData(data);
+      setShowPasteFallback(false);
+      setPasteText('');
+    } catch (e) {
+      setScrapeError('Nätverksfel — kunde inte nå servern');
+    } finally {
+      setScraping(false);
+    }
+  }, [pasteText, scrapeUrl, applyScrapedData]);
 
   const filtered = useMemo(() => {
     let list = [...apartments];
@@ -224,13 +258,13 @@ export default function Tracker() {
           }}>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: 12, color: 'var(--text2)', display: 'block', marginBottom: 4 }}>
-                Klistra in Booli-länk för att fylla i automatiskt
+                Klistra in Booli- eller Hemnet-länk för att fylla i automatiskt
               </label>
               <input
                 type="url"
                 value={scrapeUrl}
                 onChange={e => { setScrapeUrl(e.target.value); setScrapeError(''); }}
-                placeholder="https://www.booli.se/annons/..."
+                placeholder="https://www.booli.se/annons/... eller https://www.hemnet.se/..."
                 disabled={scraping}
                 style={{
                   width: '100%', background: 'var(--bg)', color: 'var(--text)',
@@ -257,6 +291,41 @@ export default function Tracker() {
           {scrapeError && (
             <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 12, marginTop: -8 }}>
               {scrapeError}
+            </div>
+          )}
+          {showPasteFallback && (
+            <div style={{
+              background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: 12, marginBottom: 16,
+            }}>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>
+                Sidan blockerade hämtningen. Kopiera annonstexten och klistra in den här istället:
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                placeholder="Klistra in annonstext här (adress, pris, storlek, rum, avgift osv.)..."
+                rows={4}
+                style={{
+                  width: '100%', background: 'var(--bg2)', color: 'var(--text)',
+                  border: '1px solid var(--border)', borderRadius: 6, padding: 8,
+                  fontSize: 13, fontFamily: 'var(--font-sans)', resize: 'vertical',
+                  marginBottom: 8,
+                }}
+              />
+              <button
+                onClick={scrapeFromPaste}
+                disabled={scraping || !pasteText.trim()}
+                style={{
+                  background: pasteText.trim() ? 'var(--accent)' : 'var(--border)',
+                  color: '#fff', border: 'none', borderRadius: 6,
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                  cursor: pasteText.trim() ? 'pointer' : 'not-allowed',
+                  fontFamily: 'var(--font-sans)',
+                  opacity: pasteText.trim() ? 1 : 0.5,
+                }}>
+                {scraping ? '⏳ Tolkar...' : '✨ Fyll i från text'}
+              </button>
             </div>
           )}
 
@@ -297,7 +366,7 @@ export default function Tracker() {
             }}>
               Spara
             </button>
-            <button onClick={() => { setShowForm(false); setForm({ ...EMPTY_FORM }); setScrapeUrl(''); setScrapeError(''); }} style={{
+            <button onClick={() => { setShowForm(false); setForm({ ...EMPTY_FORM }); setScrapeUrl(''); setScrapeError(''); setShowPasteFallback(false); setPasteText(''); }} style={{
               background: 'transparent', color: 'var(--text2)', border: '1px solid var(--border)',
               borderRadius: 8, padding: '10px 20px', fontSize: 14, cursor: 'pointer',
               fontFamily: 'var(--font-sans)',
@@ -406,14 +475,26 @@ export default function Tracker() {
                         background: 'var(--red)', color: '#fff', fontSize: 9,
                         padding: '1px 5px', borderRadius: 3, fontWeight: 700,
                       }}>SÄNKT</span> : null}
+                      {apt.status === 'budgivning' && apt.bud_hogsta ? (
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', fontFamily: 'var(--font-mono)' }}>
+                          🔥 {formatPrice(apt.bud_hogsta)}
+                        </span>
+                      ) : null}
+                      {apt.status === 'budgivning' && apt.bud_vart ? (
+                        <span style={{
+                          background: '#22c55e22', color: 'var(--green)', fontSize: 9,
+                          padding: '1px 6px', borderRadius: 3, fontWeight: 700,
+                        }}>VÅRT BUD</span>
+                      ) : null}
                     </div>
-                    <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 13, color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 13, color: 'var(--text2)', fontFamily: 'var(--font-mono)', flexWrap: 'wrap' }}>
                       {apt.price ? <span>{formatPrice(apt.price)}</span> : null}
                       {apt.sqm ? <span>{apt.sqm} m²</span> : null}
                       {apt.rooms ? <span>{apt.rooms} rum</span> : null}
                       {apt.floor ? <span>vån {apt.floor}</span> : null}
                       {apt.fee ? <span>{apt.fee.toLocaleString('sv')} kr/mån</span> : null}
                       {kvm ? <span style={{ color: kvmColor(kvm), fontWeight: 600 }}>{kvm.toLocaleString('sv')} kr/m²</span> : null}
+                      {apt.visning_date ? <span style={{ color: 'var(--orange)', fontWeight: 600 }}>📅 {apt.visning_date}{apt.visning_time ? ` kl ${apt.visning_time}` : ''}</span> : null}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -479,6 +560,41 @@ export default function Tracker() {
                             </div>
                           )}
                         </div>
+
+                        {/* Budgivning */}
+                        {apt.status === 'budgivning' && (
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Budgivning</div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <input
+                                type="number"
+                                placeholder="Högsta bud (kr)"
+                                value={apt.bud_hogsta || ''}
+                                onChange={e => setApartments(prev => prev.map(a => a.id === apt.id ? { ...a, bud_hogsta: e.target.value ? Number(e.target.value) : null } : a))}
+                                onBlur={e => updateApt(apt.id, { bud_hogsta: e.target.value ? Number(e.target.value) : null })}
+                                onClick={e => e.stopPropagation()}
+                                style={{ ...inputMiniStyle, flex: 1 }}
+                              />
+                              <button
+                                onClick={e => { e.stopPropagation(); updateApt(apt.id, { bud_vart: apt.bud_vart ? 0 : 1 }); }}
+                                style={{
+                                  ...btnStyle,
+                                  background: apt.bud_vart ? '#22c55e22' : 'var(--bg)',
+                                  color: apt.bud_vart ? 'var(--green)' : 'var(--text2)',
+                                  borderColor: apt.bud_vart ? '#22c55e44' : 'var(--border)',
+                                  fontWeight: apt.bud_vart ? 700 : 400,
+                                }}>
+                                {apt.bud_vart ? '✓ Vårt bud' : 'Vårt bud?'}
+                              </button>
+                            </div>
+                            {apt.bud_hogsta ? (
+                              <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
+                                Högsta bud: <strong style={{ color: 'var(--red)' }}>{formatPrice(apt.bud_hogsta)}</strong>
+                                {apt.bud_vart ? <span style={{ color: 'var(--green)', marginLeft: 6 }}>(vårt)</span> : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
 
                         {apt.note && (
                           <div style={{ marginBottom: 12 }}>
