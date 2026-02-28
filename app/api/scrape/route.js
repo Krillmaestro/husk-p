@@ -18,7 +18,7 @@ Fält att extrahera:
 Text:
 `;
 
-const BOOLI_GQL_BY_LISTING = `query ($id: Int!) {
+const BOOLI_GQL_BY_LISTING = `query ($id: ID!) {
   propertyByListingId(listingId: $id) {
     streetAddress
     descriptiveAreaName
