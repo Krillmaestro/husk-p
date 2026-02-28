@@ -1,7 +1,4 @@
-// Cloudflare Worker — Booli GraphQL Proxy
-// Deploy: npx wrangler deploy worker/index.js --name booli-proxy
-// Then set BOOLI_PROXY_URL in Railway to the worker URL + /graphql
-
+// Cloudflare Worker — Proxy for Booli GraphQL + general URL fetch
 export default {
   async fetch(request) {
     if (request.method === 'OPTIONS') {
@@ -18,28 +15,42 @@ export default {
       return new Response('POST only', { status: 405 });
     }
 
-    const body = await request.text();
+    const body = await request.json();
 
-    const res = await fetch('https://www.booli.se/graphql', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Origin': 'https://www.booli.se',
-        'Referer': 'https://www.booli.se/',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      },
-      body,
-    });
+    // Mode 1: GraphQL proxy (body has "query" field)
+    if (body.query) {
+      const res = await fetch('https://www.booli.se/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://www.booli.se',
+          'Referer': 'https://www.booli.se/',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        },
+        body: JSON.stringify(body),
+      });
+      return new Response(await res.text(), {
+        status: res.status,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
 
-    const data = await res.text();
+    // Mode 2: URL fetch proxy (body has "fetchUrl" field)
+    if (body.fetchUrl) {
+      const res = await fetch(body.fetchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'sv-SE,sv;q=0.9,en;q=0.8',
+        },
+        redirect: 'follow',
+      });
+      return new Response(await res.text(), {
+        status: res.status,
+        headers: { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
 
-    return new Response(data, {
-      status: res.status,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
+    return new Response('Missing "query" or "fetchUrl"', { status: 400 });
   },
 };
