@@ -18,7 +18,27 @@ Fält att extrahera:
 Text:
 `;
 
-const BOOLI_GQL = `query ($id: Int!) {
+const BOOLI_GQL_BY_LISTING = `query ($id: Int!) {
+  propertyByListingId(listingId: $id) {
+    streetAddress
+    descriptiveAreaName
+    objectType
+    livingArea { raw }
+    rooms { raw }
+    rent { raw }
+    ... on Residence {
+      listPrice { raw }
+      soldPrice { raw }
+      floor { raw value }
+    }
+    ... on ResidenceWithSoldProperty {
+      soldPrice { raw }
+      listPrice { raw }
+    }
+  }
+}`;
+
+const BOOLI_GQL_BY_RESIDENCE = `query ($id: Int!) {
   propertyByResidenceId(residenceId: $id) {
     streetAddress
     descriptiveAreaName
@@ -38,26 +58,22 @@ const BOOLI_GQL = `query ($id: Int!) {
   }
 }`;
 
-// Resolve Booli URL to a residenceId
-async function resolveResidenceId(url) {
-  // /bostad/380254 -> 380254
-  const bostadMatch = url.match(/\/bostad\/(\d+)/);
-  if (bostadMatch) return parseInt(bostadMatch[1]);
-
-  // /annons/2022489 -> follow 307 redirect -> /bostad/380254
+// Extract Booli ID and type from URL
+function parseBooliUrl(url) {
   const annonsMatch = url.match(/\/annons\/(\d+)/);
-  if (annonsMatch) {
-    const res = await fetch(url, { redirect: 'manual' });
-    const location = res.headers.get('location') || '';
-    const idMatch = location.match(/\/bostad\/(\d+)/);
-    if (idMatch) return parseInt(idMatch[1]);
-  }
+  if (annonsMatch) return { type: 'listing', id: parseInt(annonsMatch[1]) };
+
+  const bostadMatch = url.match(/\/bostad\/(\d+)/);
+  if (bostadMatch) return { type: 'residence', id: parseInt(bostadMatch[1]) };
 
   return null;
 }
 
-// Fetch apartment data from Booli's GraphQL API (no bot detection)
-async function fetchBooliGraphQL(residenceId) {
+// Fetch apartment data from Booli's GraphQL API (bypasses bot detection)
+async function fetchBooliGraphQL({ type, id }) {
+  const query = type === 'listing' ? BOOLI_GQL_BY_LISTING : BOOLI_GQL_BY_RESIDENCE;
+  const dataKey = type === 'listing' ? 'propertyByListingId' : 'propertyByResidenceId';
+
   const res = await fetch('https://www.booli.se/graphql', {
     method: 'POST',
     headers: {
@@ -65,13 +81,13 @@ async function fetchBooliGraphQL(residenceId) {
       'Origin': 'https://www.booli.se',
     },
     body: JSON.stringify({
-      query: BOOLI_GQL,
-      variables: { id: residenceId },
+      query,
+      variables: { id },
     }),
   });
 
   const json = await res.json();
-  const p = json?.data?.propertyByResidenceId;
+  const p = json?.data?.[dataKey];
   if (!p) return null;
 
   return {
@@ -132,14 +148,14 @@ export async function POST(req) {
       return Response.json({ error: 'Ange en giltig länk' }, { status: 400 });
     }
 
-    // Booli: use GraphQL API (bypasses bot detection completely)
+    // Booli: use GraphQL API directly (bypasses bot detection completely)
     if (url.includes('booli.se')) {
-      const residenceId = await resolveResidenceId(url);
-      if (!residenceId) {
-        return Response.json({ error: 'Kunde inte hitta bostads-ID i länken. Ange en Booli-länk med /annons/ eller /bostad/' }, { status: 400 });
+      const parsed = parseBooliUrl(url);
+      if (!parsed) {
+        return Response.json({ error: 'Ange en Booli-länk med /annons/ eller /bostad/' }, { status: 400 });
       }
 
-      const data = await fetchBooliGraphQL(residenceId);
+      const data = await fetchBooliGraphQL(parsed);
       if (!data) {
         return Response.json({ error: 'Kunde inte hämta data från Booli', showPasteFallback: true }, { status: 502 });
       }
