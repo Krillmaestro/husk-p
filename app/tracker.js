@@ -629,17 +629,96 @@ export default function Tracker() {
                           </div>
                         </div>
 
+                        {/* Redigera uppgifter */}
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Uppgifter</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                            {[
+                              { key: 'price', label: 'Pris (kr)', type: 'number' },
+                              { key: 'sqm', label: 'Yta (m²)', type: 'number' },
+                              { key: 'rooms', label: 'Rum', type: 'number' },
+                              { key: 'fee', label: 'Avgift (kr/mån)', type: 'number' },
+                            ].map(f => (
+                              <div key={f.key}>
+                                <div style={{ fontSize: 10, color: 'var(--text2)', marginBottom: 2 }}>{f.label}</div>
+                                <input
+                                  type={f.type}
+                                  value={apt[f.key] || ''}
+                                  onChange={e => setApartments(prev => prev.map(a => a.id === apt.id ? { ...a, [f.key]: e.target.value ? Number(e.target.value) : null } : a))}
+                                  onBlur={e => updateApt(apt.id, { [f.key]: e.target.value ? Number(e.target.value) : null })}
+                                  onClick={e => e.stopPropagation()}
+                                  style={{ ...inputMiniStyle, width: '100%' }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
                         {/* Visning */}
                         <div style={{ marginBottom: 12 }}>
                           <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Visning</div>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                            {(() => {
+                              const today = new Date();
+                              const quickDates = [];
+                              for (let i = 0; i < 7; i++) {
+                                const d = new Date(today);
+                                d.setDate(d.getDate() + i);
+                                const iso = d.toISOString().split('T')[0];
+                                const days = ['sön', 'mån', 'tis', 'ons', 'tor', 'fre', 'lör'];
+                                const label = i === 0 ? 'Idag' : i === 1 ? 'Imorgon' : days[d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1);
+                                quickDates.push({ iso, label });
+                              }
+                              return quickDates.map(qd => (
+                                <button key={qd.iso}
+                                  onClick={e => { e.stopPropagation(); updateApt(apt.id, { visning_date: qd.iso }); }}
+                                  style={{
+                                    ...btnStyle, fontSize: 11, padding: '4px 8px',
+                                    background: apt.visning_date === qd.iso ? '#f9731622' : 'var(--bg)',
+                                    color: apt.visning_date === qd.iso ? 'var(--orange)' : 'var(--text2)',
+                                    borderColor: apt.visning_date === qd.iso ? '#f9731644' : 'var(--border)',
+                                    fontWeight: apt.visning_date === qd.iso ? 700 : 400,
+                                  }}>
+                                  {qd.label}
+                                </button>
+                              ));
+                            })()}
                             <input type="date" value={apt.visning_date || ''}
                               onChange={e => { e.stopPropagation(); updateApt(apt.id, { visning_date: e.target.value }); }}
-                              style={inputMiniStyle} />
-                            <input type="time" value={apt.visning_time || ''}
-                              onChange={e => { e.stopPropagation(); updateApt(apt.id, { visning_time: e.target.value }); }}
-                              style={inputMiniStyle} />
+                              onClick={e => e.stopPropagation()}
+                              title="Välj annat datum"
+                              style={{ ...inputMiniStyle, width: 40, padding: '4px', opacity: 0.6, cursor: 'pointer' }} />
                           </div>
+                          {apt.visning_date && (
+                            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                <span style={{ fontSize: 12, color: 'var(--text2)' }}>Tid:</span>
+                                {['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'].map(t => (
+                                  <button key={t}
+                                    onClick={e => { e.stopPropagation(); updateApt(apt.id, { visning_time: t }); }}
+                                    style={{
+                                      ...btnStyle, fontSize: 10, padding: '2px 6px',
+                                      background: apt.visning_time === t ? '#f9731622' : 'var(--bg)',
+                                      color: apt.visning_time === t ? 'var(--orange)' : 'var(--text2)',
+                                      borderColor: apt.visning_time === t ? '#f9731644' : 'var(--border)',
+                                      fontWeight: apt.visning_time === t ? 700 : 400,
+                                    }}>
+                                    {t}
+                                  </button>
+                                ))}
+                              </div>
+                              {apt.visning_date && (() => {
+                                const v = formatVisningDate(apt.visning_date, apt.visning_time);
+                                return v ? <span style={{ fontSize: 12, color: 'var(--orange)', fontWeight: 600 }}>📅 {v.label}</span> : null;
+                              })()}
+                              {apt.visning_date && (
+                                <button onClick={e => { e.stopPropagation(); updateApt(apt.id, { visning_date: '', visning_time: '' }); }}
+                                  style={{ ...btnStyle, fontSize: 10, padding: '2px 6px', color: 'var(--red)' }}>
+                                  Rensa
+                                </button>
+                              )}
+                            </div>
+                          )}
                           {apt.visning_date && (
                             <div style={{ marginTop: 6 }}>
                               <textarea
